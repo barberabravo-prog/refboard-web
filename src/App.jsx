@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = "https://rhgyovfcseyhrdlbojyq.supabase.co";
-const SUPABASE_KEY = "sb_publishable_hltKEkVPb-yohe46SFR8UQ_dZSKAZb3";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZ3lvdmZjc2V5aHJkbGJvanlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3NDAxNjAsImV4cCI6MjA4ODMxNjE2MH0.i9rXTqbzORkn7T3vhu8HVZ2kfaeoWZ3KJYAEuCG4ll4";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 function getDomain(url) {
   try { return new URL(url).hostname.replace("www.", ""); }
