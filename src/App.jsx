@@ -5,44 +5,43 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 function getDomain(url){try{return new URL(url).hostname.replace("www.","");}catch{return url;}}
 
-function findFreePosition(items, w=220, h=200) {
-  const cols = Math.ceil(Math.sqrt(items.length + 1));
-  const placed = [];
-  const overlaps = (x, y) => placed.some(p =>
-    x < p.x + w + 20 && x + w + 20 > p.x && y < p.y + h + 20 && y + h + 20 > p.y
-  );
-  for(let row = 0; row < 20; row++) {
-    for(let col = 0; col < 20; col++) {
-      const x = 40 + col * (w + 24);
-      const y = 60 + row * (h + 24);
-      if(!overlaps(x, y)) return {x, y};
+function findFreePosition(existing, w=230, h=210, padX=24, padY=24) {
+  for(let row=0;row<30;row++){
+    for(let col=0;col<30;col++){
+      const x=40+col*(w+padX), y=60+row*(h+padY);
+      const overlaps=existing.some(it=>
+        x<(it.x||0)+w+padX && x+w+padX>(it.x||0) &&
+        y<(it.y||0)+h+padY && y+h+padY>(it.y||0)
+      );
+      if(!overlaps) return {x,y};
     }
   }
-  return {x: 40 + Math.random() * 400, y: 60 + Math.random() * 300};
+  return {x:40+Math.random()*600, y:60+Math.random()*400};
 }
 
-function autoGrid(items, w=220, h=200) {
-  const cols = Math.max(1, Math.floor(Math.sqrt(items.length) * 1.5));
-  return items.map((item, i) => ({
-    ...item,
-    x: 40 + (i % cols) * (w + 24),
-    y: 60 + Math.floor(i / cols) * (h + 24),
-  }));
+function gridLayout(items, w=230, h=210, pad=24) {
+  const cols=Math.max(1,Math.round(Math.sqrt(items.length)*1.4));
+  return items.map((it,i)=>({...it,x:40+(i%cols)*(w+pad),y:60+Math.floor(i/cols)*(h+pad)}));
 }
 
-function NoteItem({note,onPointerDown,onDelete,onUpdate}){
+function NoteItem({note,onPointerDown,onDelete,onUpdate,selected}){
   const [editing,setEditing]=useState(false);
   const [text,setText]=useState(note.caption||"");
+  useEffect(()=>setText(note.caption||""),[note.caption]);
   const handleResizeDown=(e)=>{
     e.stopPropagation();e.preventDefault();
-    const startX=e.clientX,startY=e.clientY,startW=note.width||200,startH=note.height||150;
-    const onMove=(ev)=>onUpdate(note.id,{width:Math.max(150,startW+(ev.clientX-startX)),height:Math.max(80,startH+(ev.clientY-startY))});
+    const sx=e.clientX,sy=e.clientY,sw=note.width||200,sh=note.height||150;
+    const onMove=(ev)=>onUpdate(note.id,{width:Math.max(150,sw+(ev.clientX-sx)),height:Math.max(80,sh+(ev.clientY-sy))});
     const onUp=()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
     window.addEventListener("mousemove",onMove);window.addEventListener("mouseup",onUp);
   };
   return(
     <div onPointerDown={(e)=>{if(!editing)onPointerDown(e,note);}}
-      style={{position:"absolute",left:note.x,top:note.y,width:note.width||200,height:note.height||150,background:"#FFE4B5",border:"1.5px solid #FFC266",borderRadius:10,padding:"8px 10px",cursor:editing?"default":"grab",userSelect:"none",boxShadow:"0 2px 8px rgba(0,0,0,0.1)",display:"flex",flexDirection:"column",gap:4,touchAction:"none"}}>
+      style={{position:"absolute",left:note.x,top:note.y,width:note.width||200,height:note.height||150,
+        background:"#FFE4B5",border:selected?"2px solid #FF9500":"1.5px solid #FFC266",
+        borderRadius:10,padding:"8px 10px",cursor:editing?"default":"grab",userSelect:"none",
+        boxShadow:selected?"0 0 0 3px rgba(255,149,0,0.25), 0 2px 8px rgba(0,0,0,0.1)":"0 2px 8px rgba(0,0,0,0.1)",
+        display:"flex",flexDirection:"column",gap:4,touchAction:"none"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span style={{fontSize:9,color:"#A0522D",fontWeight:700,letterSpacing:"0.08em"}}>NOTA</span>
         <button onPointerDown={e=>{e.stopPropagation();onDelete(note.id);}} style={{background:"none",border:"none",cursor:"pointer",color:"#A0522D",fontSize:16,lineHeight:1,padding:0}}>×</button>
@@ -52,7 +51,8 @@ function NoteItem({note,onPointerDown,onDelete,onUpdate}){
           onBlur={()=>{setEditing(false);onUpdate(note.id,{caption:text});}}
           style={{flex:1,background:"transparent",border:"none",outline:"none",resize:"none",fontSize:13,color:"#5C3D00",fontFamily:"inherit",lineHeight:1.5,touchAction:"auto"}}/>
       ):(
-        <div onDoubleClick={()=>setEditing(true)} style={{flex:1,fontSize:13,color:text?"#5C3D00":"#C8A060",lineHeight:1.5,overflow:"hidden",cursor:"text"}}>
+        <div onDoubleClick={(e)=>{e.stopPropagation();setEditing(true);}}
+          style={{flex:1,fontSize:13,color:text?"#5C3D00":"#C8A060",lineHeight:1.5,overflow:"hidden",cursor:"text"}}>
           {text||"Doble click para escribir..."}
         </div>
       )}
@@ -63,11 +63,15 @@ function NoteItem({note,onPointerDown,onDelete,onUpdate}){
   );
 }
 
-function CardItem({card,onPointerDown,onDelete,onOpen}){
+function CardItem({card,onPointerDown,onDelete,onOpen,selected}){
   const [imgError,setImgError]=useState(false);
   return(
     <div onPointerDown={(e)=>onPointerDown(e,card)}
-      style={{position:"absolute",left:card.x,top:card.y,width:220,background:"#fff",border:"1px solid #e8e8e8",borderRadius:10,overflow:"hidden",cursor:"grab",userSelect:"none",boxShadow:"0 2px 12px rgba(0,0,0,0.08)",touchAction:"none"}}>
+      style={{position:"absolute",left:card.x,top:card.y,width:230,background:"#fff",
+        border:selected?"2px solid #007AFF":"1px solid #e8e8e8",
+        borderRadius:10,overflow:"hidden",cursor:"grab",userSelect:"none",
+        boxShadow:selected?"0 0 0 3px rgba(0,122,255,0.2), 0 2px 12px rgba(0,0,0,0.08)":"0 2px 12px rgba(0,0,0,0.08)",
+        touchAction:"none"}}>
       <div style={{width:"100%",height:130,background:"#f5f5f5",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
         {card.image&&!imgError?(
           <img src={card.image} alt="" onError={()=>setImgError(true)} style={{width:"100%",height:"100%",objectFit:"cover"}} draggable={false}/>
@@ -94,13 +98,16 @@ function CardItem({card,onPointerDown,onDelete,onOpen}){
 export default function RefBoard(){
   const [cards,setCards]=useState([]);
   const [notes,setNotes]=useState([]);
+  const [selected,setSelected]=useState(new Set());
   const [offset,setOffset]=useState({x:0,y:0});
   const [scale,setScale]=useState(1);
   const [inputUrl,setInputUrl]=useState("");
   const [loading,setLoading]=useState(false);
   const [status,setStatus]=useState("");
+  const [cleaning,setCleaning]=useState(false);
   const [draggingId,setDraggingId]=useState(null);
   const [draggingType,setDraggingType]=useState(null);
+  const [didDrag,setDidDrag]=useState(false);
   const [isPanning,setIsPanning]=useState(false);
   const canvasRef=useRef(null);
   const panStart=useRef(null);
@@ -112,18 +119,19 @@ export default function RefBoard(){
   cardsRef.current=cards;
   notesRef.current=notes;
 
-  useEffect(()=>{
-    const load=async()=>{
-      const{data}=await supabase.from("cards").select("*").eq("board_id","default").order("created_at",{ascending:true});
-      if(data){
-        setCards(data.filter(d=>d.domain!=="note"));
-        setNotes(data.filter(d=>d.domain==="note"));
-      }
-    };
-    load();
-    const channel=supabase.channel("cards-changes").on("postgres_changes",{event:"*",schema:"public",table:"cards"},load).subscribe();
-    return()=>supabase.removeChannel(channel);
+  const load=useCallback(async()=>{
+    const{data}=await supabase.from("cards").select("*").eq("board_id","default").order("created_at",{ascending:true});
+    if(data){
+      setCards(data.filter(d=>d.domain!=="note"));
+      setNotes(data.filter(d=>d.domain==="note"));
+    }
   },[]);
+
+  useEffect(()=>{
+    load();
+    const ch=supabase.channel("cards-changes").on("postgres_changes",{event:"*",schema:"public",table:"cards"},load).subscribe();
+    return()=>supabase.removeChannel(ch);
+  },[load]);
 
   const addCard=async()=>{
     if(!inputUrl.trim())return;
@@ -150,42 +158,84 @@ export default function RefBoard(){
   const addNote=async()=>{
     const allItems=[...cardsRef.current,...notesRef.current];
     const pos=findFreePosition(allItems,200,150);
-    const note={id:Date.now()+"_note",board_id:"default",url:"about:blank",title:"",description:"",image:null,domain:"note",caption:"",width:200,height:150,...pos};
+    const note={id:Date.now()+"_note_"+Math.random().toString(36).slice(2),board_id:"default",url:"about:blank",title:"",description:"",image:null,domain:"note",caption:"",width:200,height:150,...pos};
     setNotes(prev=>[...prev,note]);
     await supabase.from("cards").insert(note);
   };
 
-  const handleAutoGrid=async()=>{
-    const arranged=autoGrid(cardsRef.current);
-    setCards(arranged);
-    for(const c of arranged){
-      await supabase.from("cards").update({x:c.x,y:c.y}).eq("id",c.id);
+  const deleteCard=async(id)=>{setCards(prev=>prev.filter(c=>c.id!==id));setSelected(prev=>{const n=new Set(prev);n.delete(id);return n;});await supabase.from("cards").delete().eq("id",id);};
+  const deleteNote=async(id)=>{setNotes(prev=>prev.filter(n=>n.id!==id));setSelected(prev=>{const n=new Set(prev);n.delete(id);return n;});await supabase.from("cards").delete().eq("id",id);};
+  const updateNote=async(id,fields)=>{setNotes(prev=>prev.map(n=>n.id===id?{...n,...fields}:n));await supabase.from("cards").update(fields).eq("id",id);};
+
+  const deleteSelected=async()=>{
+    for(const id of selected){
+      await supabase.from("cards").delete().eq("id",id);
     }
-    setOffset({x:0,y:0});setScale(1);
+    setCards(prev=>prev.filter(c=>!selected.has(c.id)));
+    setNotes(prev=>prev.filter(n=>!selected.has(n.id)));
+    setSelected(new Set());
   };
 
-  const deleteCard=async(id)=>{setCards(prev=>prev.filter(c=>c.id!==id));await supabase.from("cards").delete().eq("id",id);};
-  const deleteNote=async(id)=>{setNotes(prev=>prev.filter(n=>n.id!==id));await supabase.from("cards").delete().eq("id",id);};
-  const updateNote=async(id,fields)=>{
-    setNotes(prev=>prev.map(n=>n.id===id?{...n,...fields}:n));
-    await supabase.from("cards").update(fields).eq("id",id);
+  const gridSelected=async()=>{
+    const selCards=cardsRef.current.filter(c=>selected.has(c.id));
+    const arranged=gridLayout(selCards);
+    setCards(prev=>prev.map(c=>{const a=arranged.find(a=>a.id===c.id);return a||c;}));
+    for(const c of arranged) await supabase.from("cards").update({x:c.x,y:c.y}).eq("id",c.id);
+    setOffset({x:0,y:0});setScale(0.7);
+  };
+
+  const gridAll=async()=>{
+    const arranged=gridLayout(cardsRef.current);
+    setCards(arranged);
+    for(const c of arranged) await supabase.from("cards").update({x:c.x,y:c.y}).eq("id",c.id);
+    setOffset({x:0,y:0});setScale(0.7);
+  };
+
+  const cleanBroken=async()=>{
+    setCleaning(true);setStatus("comprobando links...");
+    const toCheck=[...cardsRef.current];
+    const broken=[];
+    await Promise.all(toCheck.map(async(c)=>{
+      try{
+        const r=await fetch("https://api.microlink.io?url="+encodeURIComponent(c.url));
+        const d=await r.json();
+        if(d?.status==="fail"||d?.data===null) broken.push(c.id);
+      }catch{broken.push(c.id);}
+    }));
+    for(const id of broken) await supabase.from("cards").delete().eq("id",id);
+    setCards(prev=>prev.filter(c=>!broken.includes(c.id)));
+    setCleaning(false);
+    setStatus(broken.length>0?broken.length+" links borrados":"Todo OK");
+    setTimeout(()=>setStatus(""),3000);
+  };
+
+  const toggleSelect=(id,e)=>{
+    e.stopPropagation();
+    setSelected(prev=>{
+      const n=new Set(prev);
+      if(e.shiftKey||e.metaKey){n.has(id)?n.delete(id):n.add(id);}
+      else{if(n.has(id)&&n.size===1)n.clear();else{n.clear();n.add(id);}}
+      return n;
+    });
   };
 
   const handlePointerDownCanvas=(e)=>{
     if(e.target.closest("[data-item]"))return;
+    setSelected(new Set());
     activePointers.current[e.pointerId]={x:e.clientX,y:e.clientY};
     if(Object.keys(activePointers.current).length===1){
       setIsPanning(true);
       panStart.current={x:e.clientX-offset.x,y:e.clientY-offset.y};
     }
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try{e.currentTarget.setPointerCapture(e.pointerId);}catch{}
   };
 
   const startDrag=(e,item,type)=>{
     e.stopPropagation();
     activePointers.current[e.pointerId]={x:e.clientX,y:e.clientY};
-    setDraggingId(item.id);setDraggingType(type);
+    setDraggingId(item.id);setDraggingType(type);setDidDrag(false);
     dragStart.current={mouseX:e.clientX,mouseY:e.clientY,itemX:item.x,itemY:item.y};
+    try{canvasRef.current?.setPointerCapture(e.pointerId);}catch{}
   };
 
   const handlePointerMove=(e)=>{
@@ -193,7 +243,7 @@ export default function RefBoard(){
     const pts=Object.values(activePointers.current);
     if(pts.length>=2){
       const d=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
-      if(pinchRef.current){const factor=d/pinchRef.current;setScale(s=>Math.min(Math.max(s*factor,0.15),4));}
+      if(pinchRef.current){const f=d/pinchRef.current;setScale(s=>Math.min(Math.max(s*f,0.1),5));}
       pinchRef.current=d;return;
     }
     pinchRef.current=null;
@@ -201,6 +251,7 @@ export default function RefBoard(){
     if(draggingId&&dragStart.current){
       const dx=(e.clientX-dragStart.current.mouseX)/scale;
       const dy=(e.clientY-dragStart.current.mouseY)/scale;
+      if(Math.abs(dx)>3||Math.abs(dy)>3)setDidDrag(true);
       const nx=dragStart.current.itemX+dx,ny=dragStart.current.itemY+dy;
       if(draggingType==="card")setCards(prev=>prev.map(c=>c.id===draggingId?{...c,x:nx,y:ny}:c));
       if(draggingType==="note")setNotes(prev=>prev.map(n=>n.id===draggingId?{...n,x:nx,y:ny}:n));
@@ -211,16 +262,20 @@ export default function RefBoard(){
     delete activePointers.current[e.pointerId];
     if(Object.keys(activePointers.current).length<2)pinchRef.current=null;
     if(draggingId){
-      if(draggingType==="card"){const c=cardsRef.current.find(c=>c.id===draggingId);if(c)await supabase.from("cards").update({x:c.x,y:c.y}).eq("id",c.id);}
-      if(draggingType==="note"){const n=notesRef.current.find(n=>n.id===draggingId);if(n)await supabase.from("cards").update({x:n.x,y:n.y}).eq("id",n.id);}
+      if(!didDrag){
+        toggleSelect(draggingId,e);
+      } else {
+        if(draggingType==="card"){const c=cardsRef.current.find(c=>c.id===draggingId);if(c)await supabase.from("cards").update({x:c.x,y:c.y}).eq("id",c.id);}
+        if(draggingType==="note"){const n=notesRef.current.find(n=>n.id===draggingId);if(n)await supabase.from("cards").update({x:n.x,y:n.y}).eq("id",n.id);}
+      }
     }
-    setIsPanning(false);setDraggingId(null);setDraggingType(null);
+    setIsPanning(false);setDraggingId(null);setDraggingType(null);setDidDrag(false);
     panStart.current=null;dragStart.current=null;
   };
 
   const handleWheel=useCallback((e)=>{
     e.preventDefault();
-    setScale(s=>Math.min(Math.max(s*(e.deltaY>0?0.92:1.08),0.15),4));
+    setScale(s=>Math.min(Math.max(s*(e.deltaY>0?0.92:1.08),0.1),5));
   },[]);
   useEffect(()=>{
     const el=canvasRef.current;if(!el)return;
@@ -229,6 +284,7 @@ export default function RefBoard(){
   },[handleWheel]);
 
   const zBtn={background:"#fff",border:"1px solid #e0e0e0",borderRadius:6,color:"#666",fontSize:18,width:34,height:34,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
+  const selCount=selected.size;
 
   return(
     <>
@@ -238,30 +294,46 @@ export default function RefBoard(){
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         style={{width:"100vw",height:"100vh",background:"#f0f0f0",backgroundImage:"radial-gradient(circle, #d0d0d0 1px, transparent 1px)",backgroundSize:"24px 24px",overflow:"hidden",cursor:isPanning?"grabbing":"default",position:"relative",fontFamily:"system-ui,-apple-system,sans-serif"}}>
+
+        {/* Header */}
         <div style={{position:"fixed",top:0,left:0,right:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 16px",background:"rgba(240,240,240,0.95)",backdropFilter:"blur(8px)",borderBottom:"1px solid #e0e0e0"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",boxShadow:"0 0 6px #22c55e"}}/>
             <span style={{fontWeight:700,fontSize:14,color:"#111"}}>RefBoard</span>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
             <span style={{fontSize:11,color:"#999"}}>{cards.length} refs</span>
             <button onClick={addNote} style={{background:"#FFE4B5",border:"1px solid #FFC266",borderRadius:6,color:"#8B5E00",fontSize:11,fontWeight:600,padding:"6px 10px",cursor:"pointer"}}>+ Nota</button>
-            <button onClick={handleAutoGrid} style={{background:"#fff",border:"1px solid #ddd",borderRadius:6,color:"#555",fontSize:11,fontWeight:600,padding:"6px 10px",cursor:"pointer"}}>⊞ Grid</button>
+            <button onClick={gridAll} style={{background:"#fff",border:"1px solid #ddd",borderRadius:6,color:"#555",fontSize:11,fontWeight:600,padding:"6px 10px",cursor:"pointer"}}>⊞ Grid</button>
+            <button onClick={cleanBroken} disabled={cleaning} style={{background:"#fff",border:"1px solid #ddd",borderRadius:6,color:"#888",fontSize:11,padding:"6px 10px",cursor:"pointer"}}>{cleaning?"...":"🔗 Limpiar"}</button>
             <button onClick={()=>{setOffset({x:0,y:0});setScale(1);}} style={{background:"transparent",border:"1px solid #ddd",borderRadius:6,color:"#888",fontSize:11,padding:"6px 10px",cursor:"pointer"}}>Reset</button>
           </div>
         </div>
+
+        {/* Selection bar */}
+        {selCount>0&&(
+          <div style={{position:"fixed",top:50,left:"50%",transform:"translateX(-50%)",zIndex:200,background:"#111",borderRadius:10,padding:"8px 16px",display:"flex",alignItems:"center",gap:12,boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
+            <span style={{color:"#fff",fontSize:12,fontWeight:600}}>{selCount} seleccionado{selCount>1?"s":""}</span>
+            <button onClick={gridSelected} style={{background:"#333",border:"none",borderRadius:6,color:"#fff",fontSize:11,padding:"5px 10px",cursor:"pointer"}}>⊞ Grid selección</button>
+            <button onClick={deleteSelected} style={{background:"#e53e3e",border:"none",borderRadius:6,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 10px",cursor:"pointer"}}>Borrar</button>
+            <button onClick={()=>setSelected(new Set())} style={{background:"transparent",border:"none",color:"#888",fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
+          </div>
+        )}
+
+        {/* Canvas world */}
         <div style={{transform:"translate("+offset.x+"px,"+offset.y+"px) scale("+scale+")",transformOrigin:"0 0",position:"absolute",top:0,left:0,width:0,height:0}}>
           {notes.map(note=>(
             <div key={note.id} data-item="true">
-              <NoteItem note={note} onPointerDown={(e,n)=>startDrag(e,n,"note")} onDelete={deleteNote} onUpdate={updateNote}/>
+              <NoteItem note={note} onPointerDown={(e,n)=>startDrag(e,n,"note")} onDelete={deleteNote} onUpdate={updateNote} selected={selected.has(note.id)}/>
             </div>
           ))}
           {cards.map(card=>(
             <div key={card.id} data-item="true">
-              <CardItem card={card} onPointerDown={(e,c)=>startDrag(e,c,"card")} onDelete={deleteCard} onOpen={(url)=>window.open(url,"_blank")}/>
+              <CardItem card={card} onPointerDown={(e,c)=>startDrag(e,c,"card")} onDelete={deleteCard} onOpen={(url)=>window.open(url,"_blank")} selected={selected.has(card.id)}/>
             </div>
           ))}
         </div>
+
         {cards.length===0&&notes.length===0&&(
           <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
             <div style={{border:"1.5px dashed #d0d0d0",borderRadius:16,padding:"40px 60px",textAlign:"center",background:"rgba(255,255,255,0.5)"}}>
@@ -270,11 +342,18 @@ export default function RefBoard(){
             </div>
           </div>
         )}
+
+        {/* Zoom */}
         <div style={{position:"fixed",bottom:80,left:16,zIndex:100,display:"flex",gap:6,alignItems:"center"}}>
-          <button onClick={()=>setScale(s=>Math.max(s*0.85,0.15))} style={zBtn}>−</button>
+          <button onClick={()=>setScale(s=>Math.max(s*0.85,0.1))} style={zBtn}>−</button>
           <span style={{fontSize:10,color:"#aaa",minWidth:36,textAlign:"center"}}>{Math.round(scale*100)}%</span>
-          <button onClick={()=>setScale(s=>Math.min(s*1.15,4))} style={zBtn}>+</button>
+          <button onClick={()=>setScale(s=>Math.min(s*1.15,5))} style={zBtn}>+</button>
         </div>
+
+        {/* Status */}
+        {status&&<div style={{position:"fixed",bottom:76,left:"50%",transform:"translateX(-50%)",zIndex:100,background:"rgba(0,0,0,0.7)",color:"#fff",fontSize:11,padding:"5px 12px",borderRadius:20}}>{status}</div>}
+
+        {/* Input */}
         <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:100,padding:"10px 16px 14px",background:"rgba(240,240,240,0.95)",backdropFilter:"blur(8px)",borderTop:"1px solid #e0e0e0",display:"flex",gap:8,alignItems:"center"}}>
           <input value={inputUrl} onChange={e=>setInputUrl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!loading&&addCard()}
             placeholder="Pega un link de Instagram, TikTok, Pinterest..."
@@ -282,7 +361,7 @@ export default function RefBoard(){
             onFocus={e=>e.target.style.borderColor="#111"} onBlur={e=>e.target.style.borderColor="#e0e0e0"}/>
           <button onClick={addCard} disabled={loading||!inputUrl.trim()}
             style={{background:"#111",border:"none",borderRadius:8,color:"#fff",fontSize:12,fontWeight:600,padding:"10px 18px",cursor:loading?"not-allowed":"pointer",opacity:(!inputUrl.trim()&&!loading)?0.3:1,whiteSpace:"nowrap",fontFamily:"inherit"}}>
-            {loading?"...":status||"Añadir"}
+            {loading?"...":"Añadir"}
           </button>
         </div>
       </div>
