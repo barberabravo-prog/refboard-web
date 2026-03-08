@@ -5,21 +5,40 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 function getDomain(url){try{return new URL(url).hostname.replace("www.","");}catch{return url;}}
 
+function findFreePosition(items, w=220, h=200) {
+  const cols = Math.ceil(Math.sqrt(items.length + 1));
+  const placed = [];
+  const overlaps = (x, y) => placed.some(p =>
+    x < p.x + w + 20 && x + w + 20 > p.x && y < p.y + h + 20 && y + h + 20 > p.y
+  );
+  for(let row = 0; row < 20; row++) {
+    for(let col = 0; col < 20; col++) {
+      const x = 40 + col * (w + 24);
+      const y = 60 + row * (h + 24);
+      if(!overlaps(x, y)) return {x, y};
+    }
+  }
+  return {x: 40 + Math.random() * 400, y: 60 + Math.random() * 300};
+}
+
+function autoGrid(items, w=220, h=200) {
+  const cols = Math.max(1, Math.floor(Math.sqrt(items.length) * 1.5));
+  return items.map((item, i) => ({
+    ...item,
+    x: 40 + (i % cols) * (w + 24),
+    y: 60 + Math.floor(i / cols) * (h + 24),
+  }));
+}
+
 function NoteItem({note,onPointerDown,onDelete,onUpdate}){
   const [editing,setEditing]=useState(false);
   const [text,setText]=useState(note.caption||"");
-  const resizeRef=useRef(null);
   const handleResizeDown=(e)=>{
     e.stopPropagation();e.preventDefault();
     const startX=e.clientX,startY=e.clientY,startW=note.width||200,startH=note.height||150;
-    const onMove=(ev)=>{
-      const w=Math.max(150,startW+(ev.clientX-startX));
-      const h=Math.max(80,startH+(ev.clientY-startY));
-      onUpdate(note.id,{width:w,height:h});
-    };
+    const onMove=(ev)=>onUpdate(note.id,{width:Math.max(150,startW+(ev.clientX-startX)),height:Math.max(80,startH+(ev.clientY-startY))});
     const onUp=()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
-    window.addEventListener("mousemove",onMove);
-    window.addEventListener("mouseup",onUp);
+    window.addEventListener("mousemove",onMove);window.addEventListener("mouseup",onUp);
   };
   return(
     <div onPointerDown={(e)=>{if(!editing)onPointerDown(e,note);}}
@@ -48,8 +67,8 @@ function CardItem({card,onPointerDown,onDelete,onOpen}){
   const [imgError,setImgError]=useState(false);
   return(
     <div onPointerDown={(e)=>onPointerDown(e,card)}
-      style={{position:"absolute",left:card.x,top:card.y,width:210,background:"#fff",border:"1px solid #e8e8e8",borderRadius:10,overflow:"hidden",cursor:"grab",userSelect:"none",boxShadow:"0 2px 12px rgba(0,0,0,0.08)",touchAction:"none"}}>
-      <div style={{width:"100%",height:120,background:"#f5f5f5",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
+      style={{position:"absolute",left:card.x,top:card.y,width:220,background:"#fff",border:"1px solid #e8e8e8",borderRadius:10,overflow:"hidden",cursor:"grab",userSelect:"none",boxShadow:"0 2px 12px rgba(0,0,0,0.08)",touchAction:"none"}}>
+      <div style={{width:"100%",height:130,background:"#f5f5f5",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
         {card.image&&!imgError?(
           <img src={card.image} alt="" onError={()=>setImgError(true)} style={{width:"100%",height:"100%",objectFit:"cover"}} draggable={false}/>
         ):(
@@ -83,13 +102,13 @@ export default function RefBoard(){
   const [draggingId,setDraggingId]=useState(null);
   const [draggingType,setDraggingType]=useState(null);
   const [isPanning,setIsPanning]=useState(false);
-  const [lastSync,setLastSync]=useState(null);
   const canvasRef=useRef(null);
   const panStart=useRef(null);
   const dragStart=useRef(null);
   const cardsRef=useRef(cards);
   const notesRef=useRef(notes);
   const pinchRef=useRef(null);
+  const activePointers=useRef({});
   cardsRef.current=cards;
   notesRef.current=notes;
 
@@ -97,9 +116,8 @@ export default function RefBoard(){
     const load=async()=>{
       const{data}=await supabase.from("cards").select("*").eq("board_id","default").order("created_at",{ascending:true});
       if(data){
-        setCards(data.filter(d=>d.url&&d.url!=="about:blank"));
-        setNotes(data.filter(d=>d.url==="about:blank"));
-        setLastSync(new Date());
+        setCards(data.filter(d=>d.domain!=="note"));
+        setNotes(data.filter(d=>d.domain==="note"));
       }
     };
     load();
@@ -121,16 +139,29 @@ export default function RefBoard(){
       if(data?.data?.description)meta.description=data.data.description;
       if(data?.data?.image?.url)meta.image=data.data.image.url;
     }catch{}
-    const card={id:Date.now()+"_"+Math.random().toString(36).slice(2),board_id:"default",url,title:meta.title,description:meta.description,image:meta.image,domain,caption:"",x:-offset.x/scale+80+Math.random()*300,y:-offset.y/scale+80+Math.random()*200};
+    const allItems=[...cardsRef.current,...notesRef.current];
+    const pos=findFreePosition(allItems);
+    const card={id:Date.now()+"_"+Math.random().toString(36).slice(2),board_id:"default",url,title:meta.title,description:meta.description,image:meta.image,domain,caption:"",...pos};
     await supabase.from("cards").insert(card);
     setInputUrl("");setLoading(false);setStatus("guardado");
     setTimeout(()=>setStatus(""),2000);
   };
 
   const addNote=async()=>{
-    const note={id:Date.now()+"_note",board_id:"default",url:"about:blank",title:"",description:"",image:null,domain:"note",caption:"",width:200,height:150,x:-offset.x/scale+60+Math.random()*200,y:-offset.y/scale+60+Math.random()*150};
+    const allItems=[...cardsRef.current,...notesRef.current];
+    const pos=findFreePosition(allItems,200,150);
+    const note={id:Date.now()+"_note",board_id:"default",url:"about:blank",title:"",description:"",image:null,domain:"note",caption:"",width:200,height:150,...pos};
     setNotes(prev=>[...prev,note]);
     await supabase.from("cards").insert(note);
+  };
+
+  const handleAutoGrid=async()=>{
+    const arranged=autoGrid(cardsRef.current);
+    setCards(arranged);
+    for(const c of arranged){
+      await supabase.from("cards").update({x:c.x,y:c.y}).eq("id",c.id);
+    }
+    setOffset({x:0,y:0});setScale(1);
   };
 
   const deleteCard=async(id)=>{setCards(prev=>prev.filter(c=>c.id!==id));await supabase.from("cards").delete().eq("id",id);};
@@ -142,26 +173,28 @@ export default function RefBoard(){
 
   const handlePointerDownCanvas=(e)=>{
     if(e.target.closest("[data-item]"))return;
-    setIsPanning(true);
-    panStart.current={x:e.clientX-offset.x,y:e.clientY-offset.y,id:e.pointerId};
+    activePointers.current[e.pointerId]={x:e.clientX,y:e.clientY};
+    if(Object.keys(activePointers.current).length===1){
+      setIsPanning(true);
+      panStart.current={x:e.clientX-offset.x,y:e.clientY-offset.y};
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const startDrag=(e,item,type)=>{
     e.stopPropagation();
+    activePointers.current[e.pointerId]={x:e.clientX,y:e.clientY};
     setDraggingId(item.id);setDraggingType(type);
     dragStart.current={mouseX:e.clientX,mouseY:e.clientY,itemX:item.x,itemY:item.y};
   };
 
-  const activePointers=useRef({});
   const handlePointerMove=(e)=>{
     activePointers.current[e.pointerId]={x:e.clientX,y:e.clientY};
     const pts=Object.values(activePointers.current);
-    if(pts.length===2){
+    if(pts.length>=2){
       const d=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
       if(pinchRef.current){const factor=d/pinchRef.current;setScale(s=>Math.min(Math.max(s*factor,0.15),4));}
-      pinchRef.current=d;
-      return;
+      pinchRef.current=d;return;
     }
     pinchRef.current=null;
     if(isPanning&&panStart.current)setOffset({x:e.clientX-panStart.current.x,y:e.clientY-panStart.current.y});
@@ -190,8 +223,7 @@ export default function RefBoard(){
     setScale(s=>Math.min(Math.max(s*(e.deltaY>0?0.92:1.08),0.15),4));
   },[]);
   useEffect(()=>{
-    const el=canvasRef.current;
-    if(!el)return;
+    const el=canvasRef.current;if(!el)return;
     el.addEventListener("wheel",handleWheel,{passive:false});
     return()=>el.removeEventListener("wheel",handleWheel);
   },[handleWheel]);
@@ -211,9 +243,10 @@ export default function RefBoard(){
             <div style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",boxShadow:"0 0 6px #22c55e"}}/>
             <span style={{fontWeight:700,fontSize:14,color:"#111"}}>RefBoard</span>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontSize:11,color:"#999"}}>{cards.length} refs</span>
-            <button onClick={addNote} style={{background:"#FFE4B5",border:"1px solid #FFC266",borderRadius:6,color:"#8B5E00",fontSize:11,fontWeight:600,padding:"6px 12px",cursor:"pointer"}}>+ Nota</button>
+            <button onClick={addNote} style={{background:"#FFE4B5",border:"1px solid #FFC266",borderRadius:6,color:"#8B5E00",fontSize:11,fontWeight:600,padding:"6px 10px",cursor:"pointer"}}>+ Nota</button>
+            <button onClick={handleAutoGrid} style={{background:"#fff",border:"1px solid #ddd",borderRadius:6,color:"#555",fontSize:11,fontWeight:600,padding:"6px 10px",cursor:"pointer"}}>⊞ Grid</button>
             <button onClick={()=>{setOffset({x:0,y:0});setScale(1);}} style={{background:"transparent",border:"1px solid #ddd",borderRadius:6,color:"#888",fontSize:11,padding:"6px 10px",cursor:"pointer"}}>Reset</button>
           </div>
         </div>
